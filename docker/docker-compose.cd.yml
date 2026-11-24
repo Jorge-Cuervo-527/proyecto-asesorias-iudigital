@@ -1,0 +1,87 @@
+# ============================================================
+# docker-compose.cd.yml
+# Orquestación para Despliegue Continuo (CD) con Jenkins
+# Las imágenes se descargan desde Docker Hub (no se construyen localmente)
+# Variables necesarias: DOCKER_USER, TAG (ej: latest o BUILD_NUMBER)
+# Uso: DOCKER_USER=jorgedevsoft TAG=latest docker compose -f docker/docker-compose.cd.yml up -d
+# ============================================================
+
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: mongo-cd
+    restart: unless-stopped
+    volumes:
+      - mongo_cd_data:/data/db
+    networks:
+      - iudigital-cd-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  monolito-app:
+    image: ${DOCKER_USER:-jorgedevsoft}/backend-monolito:${TAG:-latest}
+    container_name: monolito-cd
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/asesorias_monolito_db
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - iudigital-cd-net
+
+  servicio-catalogos:
+    image: ${DOCKER_USER:-jorgedevsoft}/servicio-catalogos:${TAG:-latest}
+    container_name: catalogos-cd
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "4001:4001"
+    environment:
+      - PORT=4001
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/asesorias_catalogos_db
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - iudigital-cd-net
+
+  servicio-proyectos:
+    image: ${DOCKER_USER:-jorgedevsoft}/servicio-proyectos:${TAG:-latest}
+    container_name: proyectos-cd
+    restart: unless-stopped
+    pull_policy: always
+    ports:
+      - "4002:4002"
+    environment:
+      - PORT=4002
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/asesorias_proyectos_db
+      - CATALOGOS_SERVICE_URL=http://servicio-catalogos:4001
+      - CATALOGOS_TIMEOUT_MS=3000
+    depends_on:
+      mongo:
+        condition: service_healthy
+      servicio-catalogos:
+        condition: service_started
+    networks:
+      - iudigital-cd-net
+
+volumes:
+  mongo_cd_data:
+    name: mongo_cd_data
+
+networks:
+  iudigital-cd-net:
+    name: iudigital-cd-net
+    driver: bridge

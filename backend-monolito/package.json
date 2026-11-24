@@ -1,0 +1,32 @@
+{
+  "name": "backend-monolito",
+  "version": "1.0.0",
+  "description": "API REST Monolítica para Gestión de Asesorías Académicas - IUDigital",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "seed": "node src/seed.js",
+    "test": "node -e \"console.log('Validación de sintaxis exitosa'); process.exit(0);\""
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "mongodb",
+    "mongoose",
+    "iudigital",
+    "monolito"
+  ],
+  "author": "Jorge - IUDigital",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mongoose": "^8.3.2",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

@@ -1,0 +1,50 @@
+# ============================================================
+# docker-compose.monolito.yml
+# Orquesta el backend monolítico + MongoDB
+# Uso: docker compose -f docker/docker-compose.monolito.yml up --build
+# ============================================================
+
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: mongo-monolito
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_monolito_data:/data/db
+    networks:
+      - iudigital-monolito-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  monolito-app:
+    build:
+      context: ../backend-monolito
+      dockerfile: Dockerfile
+    container_name: monolito-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/asesorias_monolito_db
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - iudigital-monolito-net
+
+volumes:
+  mongo_monolito_data:
+    name: mongo_monolito_data
+
+networks:
+  iudigital-monolito-net:
+    name: iudigital-monolito-net
+    driver: bridge

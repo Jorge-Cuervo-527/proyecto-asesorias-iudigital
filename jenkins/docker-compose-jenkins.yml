@@ -1,0 +1,34 @@
+# ============================================================
+# docker-compose-jenkins.yml
+# Levanta Jenkins LTS con soporte Docker integrado
+# Uso: docker compose -f jenkins/docker-compose-jenkins.yml up -d --build
+# Jenkins UI: http://localhost:8080
+# ============================================================
+
+services:
+  jenkins:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: jenkins-iudigital-custom:latest
+    container_name: jenkins-iudigital
+    restart: unless-stopped
+    privileged: true
+    user: root
+    ports:
+      - "8080:8080"
+      - "50000:50000"
+    volumes:
+      - jenkins_home_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - jenkins-net
+
+volumes:
+  jenkins_home_data:
+    name: jenkins_home_iudigital
+
+networks:
+  jenkins-net:
+    name: jenkins-net
+    driver: bridge

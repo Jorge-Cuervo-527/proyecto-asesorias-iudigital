@@ -1,0 +1,72 @@
+# ============================================================
+# docker-compose.desacoplado.yml
+# Orquesta los microservicios + MongoDB compartido
+# Uso: docker compose -f docker/docker-compose.desacoplado.yml up --build
+# ============================================================
+
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: mongo-desacoplado
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_desacoplado_data:/data/db
+    networks:
+      - iudigital-desacoplado-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  servicio-catalogos:
+    build:
+      context: ../backend-desacoplado/servicio-catalogos
+      dockerfile: Dockerfile
+    container_name: servicio-catalogos
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      - PORT=4001
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/asesorias_catalogos_db
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - iudigital-desacoplado-net
+
+  servicio-proyectos:
+    build:
+      context: ../backend-desacoplado/servicio-proyectos
+      dockerfile: Dockerfile
+    container_name: servicio-proyectos
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+    environment:
+      - PORT=4002
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongo:27017/asesorias_proyectos_db
+      - CATALOGOS_SERVICE_URL=http://servicio-catalogos:4001
+      - CATALOGOS_TIMEOUT_MS=3000
+    depends_on:
+      mongo:
+        condition: service_healthy
+      servicio-catalogos:
+        condition: service_started
+    networks:
+      - iudigital-desacoplado-net
+
+volumes:
+  mongo_desacoplado_data:
+    name: mongo_desacoplado_data
+
+networks:
+  iudigital-desacoplado-net:
+    name: iudigital-desacoplado-net
+    driver: bridge

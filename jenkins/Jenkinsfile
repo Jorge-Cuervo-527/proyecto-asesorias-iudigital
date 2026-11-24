@@ -1,0 +1,167 @@
+// ============================================================
+// Jenkinsfile — Pipeline Declarativo de CD
+// Sistema de Asesorías Académicas IUDigital
+// Automatiza: Build → Push Docker Hub → Deploy Continuo
+// ============================================================
+
+pipeline {
+    agent any
+
+    environment {
+        DOCKER_USER   = 'jorgedevsoft'
+        IMAGE_MONOLITO    = "${DOCKER_USER}/backend-monolito"
+        IMAGE_CATALOGOS   = "${DOCKER_USER}/servicio-catalogos"
+        IMAGE_PROYECTOS   = "${DOCKER_USER}/servicio-proyectos"
+        TAG           = "${BUILD_NUMBER}"
+        COMPOSE_FILE  = 'docker/docker-compose.cd.yml'
+    }
+
+    parameters {
+        choice(
+            name: 'ARQUITECTURA',
+            choices: ['desacoplado', 'monolito'],
+            description: 'Seleccione la arquitectura a construir y desplegar'
+        )
+    }
+
+    stages {
+
+        // ── STAGE 1: Checkout ──────────────────────────────────────────
+        stage('1. Checkout') {
+            steps {
+                echo "=== Clonando repositorio (rama: ${GIT_BRANCH}) ==="
+                checkout scm
+            }
+        }
+
+        // ── STAGE 2: Lint & Test ───────────────────────────────────────
+        stage('2. Lint & Test') {
+            steps {
+                echo '=== Verificando sintaxis y dependencias ==='
+                sh '''
+                    echo ">> Validando Monolito..."
+                    cd backend-monolito
+                    npm install --silent
+                    npm test
+                    cd ..
+                '''
+                script {
+                    if (params.ARQUITECTURA == 'desacoplado') {
+                        sh '''
+                            echo ">> Validando Servicio Catálogos..."
+                            cd backend-desacoplado/servicio-catalogos
+                            npm install --silent
+                            npm test
+                            cd ../..
+
+                            echo ">> Validando Servicio Proyectos..."
+                            cd backend-desacoplado/servicio-proyectos
+                            npm install --silent
+                            npm test
+                            cd ../..
+                        '''
+                    }
+                }
+            }
+        }
+
+        // ── STAGE 3: Docker Build ──────────────────────────────────────
+        stage('3. Docker Build') {
+            steps {
+                echo "=== Construyendo imágenes Docker (TAG: ${TAG}) ==="
+                sh "docker build -t ${IMAGE_MONOLITO}:${TAG} -t ${IMAGE_MONOLITO}:latest ./backend-monolito"
+                script {
+                    if (params.ARQUITECTURA == 'desacoplado') {
+                        sh """
+                            docker build -t ${IMAGE_CATALOGOS}:${TAG} -t ${IMAGE_CATALOGOS}:latest ./backend-desacoplado/servicio-catalogos
+                            docker build -t ${IMAGE_PROYECTOS}:${TAG} -t ${IMAGE_PROYECTOS}:latest ./backend-desacoplado/servicio-proyectos
+                        """
+                    }
+                }
+            }
+        }
+
+        // ── STAGE 4: Docker Hub Push ───────────────────────────────────
+        stage('4. Docker Hub Push') {
+            steps {
+                echo '=== Publicando imágenes en Docker Hub ==='
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_LOGIN_USER',
+                        passwordVariable: 'DOCKER_LOGIN_PASS'
+                    )
+                ]) {
+                    sh 'echo $DOCKER_LOGIN_PASS | docker login -u $DOCKER_LOGIN_USER --password-stdin'
+                    sh """
+                        docker push ${IMAGE_MONOLITO}:${TAG}
+                        docker push ${IMAGE_MONOLITO}:latest
+                    """
+                    script {
+                        if (params.ARQUITECTURA == 'desacoplado') {
+                            sh """
+                                docker push ${IMAGE_CATALOGOS}:${TAG}
+                                docker push ${IMAGE_CATALOGOS}:latest
+                                docker push ${IMAGE_PROYECTOS}:${TAG}
+                                docker push ${IMAGE_PROYECTOS}:latest
+                            """
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── STAGE 5: Deploy CD ─────────────────────────────────────────
+        stage('5. Deploy (CD)') {
+            steps {
+                echo '=== Ejecutando Despliegue Continuo con Docker Compose ==='
+                sh """
+                    export DOCKER_USER=${DOCKER_USER}
+                    export TAG=${TAG}
+                    docker compose -f ${COMPOSE_FILE} pull
+                    docker compose -f ${COMPOSE_FILE} down --remove-orphans
+                    docker compose -f ${COMPOSE_FILE} up -d --force-recreate
+                """
+            }
+        }
+
+        // ── STAGE 6: Smoke Test ────────────────────────────────────────
+        stage('6. Smoke Test') {
+            steps {
+                echo '=== Ejecutando verificación de disponibilidad (Smoke Test) ==='
+                sh '''
+                    sleep 15
+                    echo ">> Verificando Monolito..."
+                    curl -f http://localhost:3000/health || (echo "FALLO: Monolito no responde" && exit 1)
+                    echo ">> Monolito OK"
+                '''
+                script {
+                    if (params.ARQUITECTURA == 'desacoplado') {
+                        sh '''
+                            echo ">> Verificando Servicio Catálogos..."
+                            curl -f http://localhost:4001/health || (echo "FALLO: Catálogos no responde" && exit 1)
+                            echo ">> Catálogos OK"
+                            echo ">> Verificando Servicio Proyectos..."
+                            curl -f http://localhost:4002/health || (echo "FALLO: Proyectos no responde" && exit 1)
+                            echo ">> Proyectos OK"
+                        '''
+                    }
+                }
+            }
+        }
+    }
+
+    // ── POST-ACCIONES ──────────────────────────────────────────────────
+    post {
+        success {
+            echo "✅ Pipeline completado exitosamente. Build #${BUILD_NUMBER} desplegado."
+            sh 'docker image prune -f'
+        }
+        failure {
+            echo "❌ Pipeline fallido en Build #${BUILD_NUMBER}. Revisar logs para diagnóstico."
+        }
+        always {
+            sh 'docker logout || true'
+        }
+    }
+}
